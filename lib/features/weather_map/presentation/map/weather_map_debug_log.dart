@@ -23,7 +23,9 @@ class WeatherMapDebugLog {
 
   static void panSkipped(String reason, String because) {
     if (!kDebugMode) return;
-    debugPrint('[WindifyMap] camera_pan_skipped reason=$reason because=$because');
+    debugPrint(
+      '[WindifyMap] camera_pan_skipped reason=$reason because=$because',
+    );
   }
 
   static void selectedPinSet(LatLng point, String? label) {
@@ -55,5 +57,21 @@ class WeatherMapDebugLog {
       '[WindifyMap] active_weather_location lat=${coords.latitude} '
       'lng=${coords.longitude} label=$label',
     );
+  }
+
+  static void routeGenerated({
+    required int points,
+    required double distanceKm,
+    required double durationMinutes,
+  }) {
+    if (!kDebugMode) return;
+    debugPrint(
+      '[WindifyMap] route_generated points=$points distance_km=$distanceKm duration_min=$durationMinutes',
+    );
+  }
+
+  static void routeGenerationFailed(String reason) {
+    if (!kDebugMode) return;
+    debugPrint('[WindifyMap] route_generation_failed reason=$reason');
   }
 }

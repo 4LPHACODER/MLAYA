@@ -27,6 +27,10 @@ class WeatherMapState {
   final List<ForecastMap> timelineMaps;
   final int selectedTimelineIndex;
   final bool isTimelinePlaying;
+  final List<LatLng> routePoints;
+  final double? routeDistanceKm;
+  final double? routeDurationMinutes;
+  final String? routeMode;
 
   const WeatherMapState({
     this.isLoadingWeather = false,
@@ -45,6 +49,10 @@ class WeatherMapState {
     this.timelineMaps = const [],
     this.selectedTimelineIndex = 0,
     this.isTimelinePlaying = false,
+    this.routePoints = const [],
+    this.routeDistanceKm,
+    this.routeDurationMinutes,
+    this.routeMode,
   });
 
   LatLng get activeLocationForWeather =>
@@ -89,6 +97,10 @@ class WeatherMapState {
     List<ForecastMap>? timelineMaps,
     int? selectedTimelineIndex,
     bool? isTimelinePlaying,
+    List<LatLng>? routePoints,
+    Object? routeDistanceKm = _unset,
+    Object? routeDurationMinutes = _unset,
+    Object? routeMode = _unset,
   }) {
     return WeatherMapState(
       isLoadingWeather: isLoadingWeather ?? this.isLoadingWeather,
@@ -112,13 +124,21 @@ class WeatherMapState {
       searchResults: searchResults ?? this.searchResults,
       isSearching: isSearching ?? this.isSearching,
       isInfoExpanded: isInfoExpanded ?? this.isInfoExpanded,
-      isRequestingLocation:
-          isRequestingLocation ?? this.isRequestingLocation,
+      isRequestingLocation: isRequestingLocation ?? this.isRequestingLocation,
       locationPermissionStatus:
           locationPermissionStatus ?? this.locationPermissionStatus,
       timelineMaps: timelineMaps ?? this.timelineMaps,
-      selectedTimelineIndex: selectedTimelineIndex ?? this.selectedTimelineIndex,
+      selectedTimelineIndex:
+          selectedTimelineIndex ?? this.selectedTimelineIndex,
       isTimelinePlaying: isTimelinePlaying ?? this.isTimelinePlaying,
+      routePoints: routePoints ?? this.routePoints,
+      routeDistanceKm: routeDistanceKm == _unset
+          ? this.routeDistanceKm
+          : routeDistanceKm as double?,
+      routeDurationMinutes: routeDurationMinutes == _unset
+          ? this.routeDurationMinutes
+          : routeDurationMinutes as double?,
+      routeMode: routeMode == _unset ? this.routeMode : routeMode as String?,
     );
   }
 }

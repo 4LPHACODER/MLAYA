@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 
 import '../controllers/auth_controller.dart';
 import '../states/auth_state.dart';
@@ -9,6 +8,8 @@ import '../widgets/auth_button.dart';
 import '../widgets/email_input_field.dart';
 import '../widgets/google_sign_in_button.dart';
 import '../widgets/password_input_field.dart';
+import '../widgets/auth_input_decoration.dart';
+import '../widgets/auth_ui_shell.dart';
 
 class SignupPage extends ConsumerStatefulWidget {
   const SignupPage({super.key});
@@ -78,81 +79,109 @@ class _SignupPageState extends ConsumerState<SignupPage> {
       }
     });
 
-    return Scaffold(
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 24),
-                    AppBrandLogo(
-                      logoSize: compact ? 84 : 104,
-                      borderRadius: compact ? 22 : 26,
-                      subtitle: 'Create your account',
-                      spacing: 12,
-                    ),
-                    const SizedBox(height: 40),
-                    EmailInputField(controller: _emailController),
-                    const SizedBox(height: 16),
-                    PasswordInputField(controller: _passwordController),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _confirmPasswordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm Password',
-                        hintText: 'Re-enter your password',
-                        prefixIcon: Icon(Icons.lock),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please confirm your password';
-                        }
-                        if (value != _passwordController.text) {
-                          return 'Passwords do not match';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    AuthButton(
-                      text: 'Sign Up',
-                      onPressed: authState.isLoading ? null : _signUp,
-                      isLoading: authState.isLoading,
-                    ),
-                    const SizedBox(height: 16),
-                    GoogleSignInButton(
-                      onPressed: authState.isLoading ? null : _signInWithGoogle,
-                    ),
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Already have an account? ',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                          },
-                          child: const Text('Sign In'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+    return AuthNatureScaffold(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AuthBrandHeader(subtitle: 'Create your account'),
+            SizedBox(height: compact ? 24 : 32),
+            _buildSignUpCard(context, authState),
+            const SizedBox(height: 18),
+            _buildSignInLink(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSignUpCard(BuildContext context, AuthState authState) {
+    final compact = MediaQuery.of(context).size.width < 360;
+    return AuthGlassCard(
+      child: Column(
+        children: [
+          Text(
+            'Start Your Journey',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.displayLarge?.copyWith(
+              fontSize: compact ? 25 : 30,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF334638),
+              letterSpacing: 0.1,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Create an account to save places and personalize your weather experience.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF677D6E),
+              height: 1.45,
+              fontSize: compact ? 13 : 14,
+            ),
+          ),
+          const SizedBox(height: 26),
+          EmailInputField(controller: _emailController),
+          const SizedBox(height: 14),
+          PasswordInputField(controller: _passwordController),
+          const SizedBox(height: 14),
+          TextFormField(
+            controller: _confirmPasswordController,
+            obscureText: true,
+            decoration: buildAuthInputDecoration(
+              labelText: 'Confirm Password',
+              hintText: 'Re-enter your password',
+              prefixIcon: Icons.lock_outline_rounded,
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please confirm your password';
+              }
+              if (value != _passwordController.text) {
+                return 'Passwords do not match';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 20),
+          AuthButton(
+            text: 'Sign Up',
+            onPressed: authState.isLoading ? null : _signUp,
+            isLoading: authState.isLoading,
+          ),
+          const SizedBox(height: 18),
+          const AuthSectionDivider(),
+          const SizedBox(height: 18),
+          GoogleSignInButton(
+            onPressed: authState.isLoading ? null : _signInWithGoogle,
+            isLoading: authState.isLoading,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSignInLink(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          'Already have an account? ',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Text(
+            'Sign In',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF3E5E4C),
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
-      ),
+      ],
     );
   }
 

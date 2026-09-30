@@ -10,12 +10,16 @@ class EnvConfig {
   static const String mapboxAccessTokenKey = 'MAPBOX_ACCESS_TOKEN';
   static const String openWeatherApiKeyKey = 'OPENWEATHER_API_KEY';
   static const String openWeatherBaseUrlKey = 'OPENWEATHER_BASE_URL';
+  static const String geoapifyApiKeyKey = 'GEOAPIFY_API_KEY';
+  static const String geoapifyBaseUrlKey = 'GEOAPIFY_BASE_URL';
 
   static String get supabaseUrl => _getRequired(supabaseUrlKey);
   static String get supabaseAnonKey => _getRequired(supabaseAnonKeyKey);
   static String? get mapboxAccessToken => _getString(mapboxAccessTokenKey);
   static String? get openWeatherApiKey => _getString(openWeatherApiKeyKey);
-  static String? get openWeatherBaseUrl => _getString(openWeatherBaseUrlKey);
+  static String get openWeatherBaseUrl => _normalizedOpenWeatherBaseUrl();
+  static String get geoapifyApiKey => _getRequired(geoapifyApiKeyKey);
+  static String get geoapifyBaseUrl => _normalizedGeoapifyBaseUrl();
 
   /// Returns the appropriate Google Client ID for the current platform
   /// Web uses GOOGLE_WEB_CLIENT_ID
@@ -61,16 +65,38 @@ class EnvConfig {
     return value;
   }
 
-  /// Get required env value - throws if missing
+  /// Get required env value - throws if missing with detailed message
   static String _getRequired(String key) {
     final value = _getString(key);
     if (value == null || value.isEmpty) {
       throw StateError(
         'Missing required environment variable: $key. '
-        'Please check your .env file.',
+        'Please check your .env file exists at project root and contains: $key=your_value',
       );
     }
     return value;
+  }
+
+  static String _normalizedOpenWeatherBaseUrl() {
+    final configured = _getString(openWeatherBaseUrlKey);
+    final fallback = 'https://api.openweathermap.org/data/2.5';
+    final raw = (configured == null || configured.isEmpty)
+        ? fallback
+        : configured;
+    final withoutQuery = raw.split('?').first.trim();
+    if (withoutQuery.endsWith('/weather')) {
+      return withoutQuery.substring(0, withoutQuery.length - '/weather'.length);
+    }
+    return withoutQuery.replaceAll(RegExp(r'\/+$'), '');
+  }
+
+  static String _normalizedGeoapifyBaseUrl() {
+    final configured = _getString(geoapifyBaseUrlKey);
+    final fallback = 'https://api.geoapify.com/v2';
+    final raw = (configured == null || configured.isEmpty)
+        ? fallback
+        : configured;
+    return raw.trim().replaceAll(RegExp(r'\/+$'), '');
   }
 
   /// Load environment variables

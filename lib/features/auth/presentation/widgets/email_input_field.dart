@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'auth_input_decoration.dart';
 
 class EmailInputField extends StatelessWidget {
   final TextEditingController controller;
@@ -10,10 +11,10 @@ class EmailInputField extends StatelessWidget {
     return TextFormField(
       controller: controller,
       keyboardType: TextInputType.emailAddress,
-      decoration: const InputDecoration(
+      decoration: buildAuthInputDecoration(
         labelText: 'Email',
         hintText: 'Enter your email',
-        prefixIcon: Icon(Icons.email),
+        prefixIcon: Icons.alternate_email_rounded,
       ),
       validator: (value) {
         if (value == null || value.isEmpty) {

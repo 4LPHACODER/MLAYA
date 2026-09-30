@@ -6,13 +6,13 @@ class AppBrandLogo extends StatelessWidget {
     this.logoSize = 96,
     this.borderRadius = 24,
     this.showAppName = true,
-    this.appName = 'Windify',
+    this.appName = 'Malaya',
     this.subtitle,
     this.showShadow = true,
     this.titleStyle,
     this.subtitleStyle,
     this.spacing = 16,
-    this.assetPath = 'assets/images/windify_logo.png',
+    this.assetPath = 'assets/images/malaya_logo.png',
   });
 
   final double logoSize;

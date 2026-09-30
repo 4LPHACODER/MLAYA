@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 import 'package:windify_v2/features/settings/domain/entities/app_preferences.dart';
+import 'package:windify_v2/features/notifications/domain/entities/app_notification.dart';
+import 'package:windify_v2/features/notifications/presentation/pages/notifications_page.dart';
+import 'package:windify_v2/features/notifications/presentation/providers/notification_provider.dart';
 import 'package:windify_v2/features/settings/presentation/pages/settings_page.dart';
 import 'package:windify_v2/features/settings/application/providers/app_preferences_providers.dart';
 
@@ -22,6 +28,11 @@ import 'package:windify_v2/features/saved_locations/application/requests/save_sa
 import 'package:windify_v2/features/saved_locations/application/providers/saved_locations_providers.dart';
 import 'package:windify_v2/features/saved_locations/domain/entities/saved_location.dart';
 import 'package:windify_v2/features/saved_locations/presentation/pages/saved_locations_page.dart';
+import 'package:windify_v2/features/outdoor_recommendations/application/providers/outdoor_recommendations_providers.dart';
+import 'package:windify_v2/features/outdoor_recommendations/domain/entities/recommended_spot_model.dart';
+import 'package:windify_v2/features/outdoor_recommendations/presentation/pages/outdoor_recommendations_page.dart';
+import 'package:windify_v2/features/community/presentation/pages/add_spot_page.dart';
+import 'package:windify_v2/features/community/presentation/pages/capture_moment_page.dart';
 
 class WeatherMapPage extends ConsumerStatefulWidget {
   const WeatherMapPage({super.key});
@@ -129,7 +140,9 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     }
     final name = mapState.selectedLocationLabel ?? 'Saved place';
     try {
-      await ref.read(savedLocationsServiceProvider).save(
+      await ref
+          .read(savedLocationsServiceProvider)
+          .save(
             SaveSavedLocationRequest(
               userId: user.id,
               locationName: name,
@@ -138,28 +151,36 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             ),
           );
       ref.invalidate(savedLocationsListProvider);
+      await ref.read(notificationsProvider.notifier).addNotification(
+        title: 'Spot saved',
+        message: '$name was added to your saved spots.',
+        type: NotificationType.savedSpot,
+        spotName: name,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location saved')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Location saved')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not save: $e')));
       }
     }
   }
 
   Future<void> _openSavedLocations(BuildContext context) async {
     final result = await Navigator.of(context).push<SavedLocation>(
-      MaterialPageRoute(
-        builder: (_) => const SavedLocationsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const SavedLocationsPage()),
     );
     if (!mounted || result == null) return;
-    await ref.read(weatherMapNotifierProvider.notifier).visitSavedLocation(
+    await ref
+        .read(weatherMapNotifierProvider.notifier)
+        .visitSavedLocation(
           LatLng(result.latitude, result.longitude),
           result.locationName,
         );
@@ -176,6 +197,148 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     });
   }
 
+  Future<void> _openOutdoorSpots(
+    BuildContext context,
+    WeatherMapState state,
+  ) async {
+    final result = await Navigator.of(context).push<OutdoorSpotActionResult>(
+      MaterialPageRoute(
+        builder: (_) => OutdoorRecommendationsPage(
+          activeCenter: state.activeLocationForWeather,
+          centerLabel: state.activeLocationLabel,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    if (result.type == OutdoorSpotActionType.visit) {
+      await ref
+          .read(weatherMapNotifierProvider.notifier)
+          .visitOutdoorSpot(result.spot.coordinates, result.spot.name);
+      return;
+    }
+    await _generateRouteToSpot(result.spot);
+  }
+
+  Future<void> _generateRouteToSpot(RecommendedSpotModel spot) async {
+    final notifier = ref.read(weatherMapNotifierProvider.notifier);
+    final state = ref.read(weatherMapNotifierProvider);
+    final origin = state.userLocation;
+    if (origin == null) {
+      WeatherMapDebugLog.routeGenerationFailed('missing_current_location');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Current location is needed to generate route.'),
+        ),
+      );
+      return;
+    }
+    // #region agent log
+    unawaited(
+      _agentLog(
+        runId: 'route-bug-investigation',
+        hypothesisId: 'H3',
+        location: 'weather_map_page.dart:_generateRouteToSpot:before_service',
+        message: 'route_generation_started_from_ui',
+        data: {
+          'originLat': origin.latitude,
+          'originLon': origin.longitude,
+          'destinationLat': spot.latitude,
+          'destinationLon': spot.longitude,
+          'spotName': spot.name,
+          'spotHasValidCoordinates': spot.hasValidCoordinates,
+        },
+      ),
+    );
+    // #endregion
+    try {
+      final route = await ref
+          .read(routeServiceProvider)
+          .buildRoute(origin: origin, destination: spot.coordinates);
+      notifier.setRoute(
+        points: route.points,
+        distanceKm: route.distanceKm,
+        durationMinutes: route.durationMinutes,
+        mode: route.mode,
+      );
+      await ref.read(notificationsProvider.notifier).addNotification(
+        title: 'Route ready',
+        message: 'Route to ${spot.name} is ready.',
+        type: NotificationType.route,
+        spotName: spot.name,
+        latitude: spot.latitude,
+        longitude: spot.longitude,
+      );
+      WeatherMapDebugLog.routeGenerated(
+        points: route.points.length,
+        distanceKm: route.distanceKm,
+        durationMinutes: route.durationMinutes,
+      );
+      // #region agent log
+      unawaited(
+        _agentLog(
+          runId: 'route-bug-investigation',
+          hypothesisId: 'H3',
+          location: 'weather_map_page.dart:_generateRouteToSpot:after_service',
+          message: 'route_generation_completed_in_ui',
+          data: {
+            'pointCount': route.points.length,
+            'firstPoint': {
+              'lat': route.points.isNotEmpty ? route.points.first.latitude : null,
+              'lon': route.points.isNotEmpty ? route.points.first.longitude : null,
+            },
+            'lastPoint': {
+              'lat': route.points.isNotEmpty ? route.points.last.latitude : null,
+              'lon': route.points.isNotEmpty ? route.points.last.longitude : null,
+            },
+            'distanceKm': route.distanceKm,
+            'durationMinutes': route.durationMinutes,
+          },
+        ),
+      );
+      // #endregion
+      await notifier.visitOutdoorSpot(spot.coordinates, spot.name);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Route ready: ${route.distanceLabel} • ${route.durationLabel}',
+          ),
+        ),
+      );
+    } catch (e) {
+      WeatherMapDebugLog.routeGenerationFailed(e.toString());
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not generate route: $e')));
+    }
+  }
+
+  Future<void> _openAddSpot(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final created = await navigator.push<bool>(
+      MaterialPageRoute(builder: (_) => const AddSpotPage()),
+    );
+    if (!mounted || created != true) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Spot added successfully.')),
+    );
+  }
+
+  Future<void> _openCaptureMoment(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final created = await navigator.push<bool>(
+      MaterialPageRoute(builder: (_) => const CaptureMomentPage()),
+    );
+    if (!mounted || created != true) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Moment saved successfully.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<WeatherMapState>(
@@ -185,8 +348,16 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     final state = ref.watch(weatherMapNotifierProvider);
     final notifier = ref.read(weatherMapNotifierProvider.notifier);
     final preferences = ref.watch(appPreferencesProvider);
+    final unreadCount = ref.watch(unreadCountProvider);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final bottomSafe = MediaQuery.of(context).padding.bottom;
+    const floatingNavBottom = 12.0;
+    final navEstimatedHeight = screenWidth < 390 ? 138.0 : 148.0;
+    final controlsBottom = bottomSafe + floatingNavBottom + navEstimatedHeight + 12;
+    final routeBottom = controlsBottom + 74;
 
     return Scaffold(
+      extendBody: true,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -226,7 +397,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Windify',
+                  'Malaya',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w700,
@@ -275,6 +446,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                     );
                   },
           ),
+          _NotificationBellButton(unreadCount: unreadCount),
           IconButton(
             tooltip: 'Settings',
             icon: const Icon(Icons.settings, color: Colors.white, size: 22),
@@ -314,7 +486,9 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: _getLayerColor(state.selectedLayer).withOpacity(0.09),
+                    color: _getLayerColor(
+                      state.selectedLayer,
+                    ).withOpacity(0.09),
                   ),
                 ),
               ),
@@ -341,15 +515,28 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           // Live indicator
           Positioned(
             left: 20,
-            bottom: MediaQuery.of(context).padding.bottom + 140,
+            bottom: controlsBottom,
             child: _buildLiveIndicator(state),
           ),
           // Map controls
           Positioned(
             right: 16,
-            bottom: MediaQuery.of(context).padding.bottom + 140,
-            child: _buildMapControls(notifier),
+            top: MediaQuery.of(context).padding.top + kToolbarHeight + 66,
+            bottom: controlsBottom,
+            child: _buildMapControls(
+              notifier,
+              onAiPressed: () => _showAIRecommendationSheet(context, state),
+            ),
           ),
+          if (state.routePoints.length > 1 &&
+              state.routeDistanceKm != null &&
+              state.routeDurationMinutes != null)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: routeBottom,
+              child: _buildRouteSummary(state, notifier),
+            ),
           if (state.isRequestingLocation)
             Positioned(
               left: 16,
@@ -428,7 +615,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             Positioned(
               left: 12,
               right: 12,
-              bottom: MediaQuery.of(context).padding.bottom + 108,
+              bottom: controlsBottom - 32,
               child: Material(
                 elevation: 8,
                 borderRadius: BorderRadius.circular(14),
@@ -438,10 +625,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: Colors.orange.shade800,
-                      ),
+                      Icon(Icons.info_outline, color: Colors.orange.shade800),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -471,26 +655,26 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 ),
               ),
             ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: floatingNavBottom,
+            child: _buildBottomNav(
+              context,
+              state,
+              notifier,
+              preferences,
+            ),
+          ),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(
-        context,
-        state,
-        notifier,
-        preferences,
-      ),
-      // AI recommendation FAB
-      floatingActionButton: _AIFab(
-        onPressed: () => _showAIRecommendationSheet(context, state),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
   void _openSettingsPage(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SettingsPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsPage()));
   }
 
   Widget _buildMap(WeatherMapState state, AppPreferences preferences) {
@@ -519,6 +703,16 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           additionalOptions: {'accessToken': mapboxToken},
           userAgentPackageName: 'com.windify.app',
         ),
+        if (state.routePoints.length > 1)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: state.routePoints,
+                color: Colors.deepPurpleAccent.withOpacity(0.9),
+                strokeWidth: 4,
+              ),
+            ],
+          ),
         MarkerLayer(
           markers: [
             if (state.userLocation != null)
@@ -642,9 +836,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
-  Widget _buildMapControls(WeatherMapNotifier notifier) {
+  Widget _buildMapControls(
+    WeatherMapNotifier notifier, {
+    required VoidCallback onAiPressed,
+  }) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.max,
       children: [
         _MapControlButton(
           icon: Icons.add,
@@ -669,6 +867,8 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           tooltip: 'Refresh',
           onPressed: notifier.refresh,
         ),
+        const SizedBox(height: 10),
+        _AIFab(onPressed: onAiPressed),
       ],
     );
   }
@@ -679,131 +879,32 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     WeatherMapNotifier notifier,
     AppPreferences preferences,
   ) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.12),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            _buildLayerSegmentedControl(context, state, notifier),
-            const SizedBox(height: 12),
-            const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
-            const SizedBox(height: 12),
-            _buildBottomActions(context, state, notifier, preferences),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLayerSegmentedControl(
-    BuildContext context,
-    WeatherMapState state,
-    WeatherMapNotifier notifier,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          _buildSegment(
-            context,
-            'Radar',
-            Icons.radar,
-            WeatherLayer.radar,
-            state.selectedLayer == WeatherLayer.radar,
-            () => notifier.selectLayer(WeatherLayer.radar),
-          ),
-          const SizedBox(width: 12),
-          _buildSegment(
-            context,
-            'Wind',
-            Icons.air,
-            WeatherLayer.wind,
-            state.selectedLayer == WeatherLayer.wind,
-            () => notifier.selectLayer(WeatherLayer.wind),
-          ),
-          const SizedBox(width: 12),
-          _buildSegment(
-            context,
-            'Wave',
-            Icons.waves,
-            WeatherLayer.wave,
-            state.selectedLayer == WeatherLayer.wave,
-            () => notifier.selectLayer(WeatherLayer.wave),
-          ),
-          const SizedBox(width: 12),
-          _buildSegment(
-            context,
-            'Cloud',
-            Icons.cloud,
-            WeatherLayer.cloud,
-            state.selectedLayer == WeatherLayer.cloud,
-            () => notifier.selectLayer(WeatherLayer.cloud),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSegment(
-    BuildContext context,
-    String label,
-    IconData icon,
-    WeatherLayer layer,
-    bool isSelected,
-    VoidCallback onTap,
-  ) {
-    final color = _getLayerColor(layer);
-    return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: isSelected ? color : Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isSelected ? color : Colors.grey.shade200,
-                width: 1.5,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(26),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.55),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 22,
+                offset: const Offset(0, 8),
               ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: isSelected ? Colors.white : Colors.grey.shade600,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.grey.shade700,
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ],
-            ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            minimum: const EdgeInsets.only(bottom: 2),
+            child: _buildBottomActions(context, state, notifier, preferences),
           ),
         ),
       ),
@@ -816,39 +917,103 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     WeatherMapNotifier notifier,
     AppPreferences preferences,
   ) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: _BottomNavAction(
-              icon: Icons.star_border,
-              label: 'Saved',
-              onPressed: () => unawaited(_openSavedLocations(context)),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _BottomNavAction(
-              icon: Icons.layers,
-              label: 'Layers',
-              onPressed: () => _showLayersSheet(context, state, notifier),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: _BottomNavAction(
-              icon: Icons.timeline,
-              label: 'Timeline',
-              onPressed: () => _showTimelineSheet(
-                context,
-                state,
-                notifier,
-                preferences,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _BottomNavAction(
+                icon: Icons.travel_explore,
+                label: 'Spots',
+                onPressed: () => unawaited(_openOutdoorSpots(context, state)),
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Expanded(
+              child: _BottomNavAction(
+                icon: Icons.star_border,
+                label: 'Saved',
+                onPressed: () => unawaited(_openSavedLocations(context)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _BottomNavAction(
+                icon: Icons.layers,
+                label: 'Layers',
+                onPressed: () => _showLayersSheet(context, state, notifier),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _BottomNavAction(
+                icon: Icons.timeline,
+                label: 'Timeline',
+                onPressed: () =>
+                    _showTimelineSheet(context, state, notifier, preferences),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _PrimaryBottomAction(
+                icon: Icons.add_location_alt_outlined,
+                label: 'Add Spot',
+                color: const Color(0xFF8FD3A8),
+                onPressed: () => unawaited(_openAddSpot(context)),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _PrimaryBottomAction(
+                icon: Icons.camera_alt_outlined,
+                label: 'Capture Moment',
+                color: const Color(0xFF59C9A5),
+                onPressed: () => unawaited(_openCaptureMoment(context)),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRouteSummary(
+    WeatherMapState state,
+    WeatherMapNotifier notifier,
+  ) {
+    final distanceKm = state.routeDistanceKm ?? 0;
+    final distanceText = distanceKm < 1
+        ? '${(distanceKm * 1000).round()} m'
+        : '${distanceKm.toStringAsFixed(1)} km';
+    final minutes = (state.routeDurationMinutes ?? 0).round();
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(14),
+      color: Colors.white.withOpacity(0.94),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.alt_route, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Route: $distanceText • ${minutes <= 0 ? 1 : minutes} min • ${state.routeMode ?? 'driving'}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Clear route',
+              onPressed: notifier.clearRoute,
+              icon: const Icon(Icons.close),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -881,6 +1046,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(_getLayerIcon(layer)),
                     title: Text(layer.displayName),
+                    subtitle: Text(_layerDescription(layer)),
                     trailing: layer == state.selectedLayer
                         ? Icon(
                             Icons.check_circle,
@@ -899,6 +1065,19 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         );
       },
     );
+  }
+
+  String _layerDescription(WeatherLayer layer) {
+    switch (layer) {
+      case WeatherLayer.radar:
+        return 'Weather Radar';
+      case WeatherLayer.wind:
+        return 'Wind Forecast';
+      case WeatherLayer.wave:
+        return 'Wave Forecast';
+      case WeatherLayer.cloud:
+        return 'Cloud Cover';
+    }
   }
 
   void _showTimelineSheet(
@@ -939,7 +1118,9 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      _formatForecastLabel(state.timelineMaps[localIndex].updatedAt),
+                      _formatForecastLabel(
+                        state.timelineMaps[localIndex].updatedAt,
+                      ),
                       style: Theme.of(ctx).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 12),
@@ -1179,7 +1360,10 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 child: _DataCard(
                   icon: Icons.air,
                   label: 'Wind Speed',
-                  value: _formatWindSpeed(wind.speed, preferences.windSpeedUnit),
+                  value: _formatWindSpeed(
+                    wind.speed,
+                    preferences.windSpeedUnit,
+                  ),
                   color: Colors.green,
                 ),
               ),
@@ -1199,10 +1383,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             _DataCard(
               icon: Icons.bolt,
               label: 'Wind Gust',
-              value: _formatWindSpeed(
-                wind.gust!,
-                preferences.windSpeedUnit,
-              ),
+              value: _formatWindSpeed(wind.gust!, preferences.windSpeedUnit),
               color: Colors.orange,
               fullWidth: true,
             ),
@@ -1388,17 +1569,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
       time.month,
       time.day,
     ).difference(DateTime(now.year, now.month, now.day)).inDays;
-    final hourText =
-        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    final hourText = DateFormat('h:mm a').format(time);
     if (dayDelta == 0) return 'Today $hourText';
     if (dayDelta == 1) return 'Tomorrow $hourText';
-    return '${time.month}/${time.day} $hourText';
+    return DateFormat('MMM d, h:mm a').format(time);
   }
 
-  String _formatTemperature(
-    double celsius,
-    TemperatureUnitPreference unit,
-  ) {
+  String _formatTemperature(double celsius, TemperatureUnitPreference unit) {
     switch (unit) {
       case TemperatureUnitPreference.celsius:
         return '${celsius.toStringAsFixed(1)}°C';
@@ -1422,10 +1599,43 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     }
   }
 
-  String _formatMiniWeatherSummary(ForecastMap map, AppPreferences preferences) {
+  String _formatMiniWeatherSummary(
+    ForecastMap map,
+    AppPreferences preferences,
+  ) {
     final weather = map.currentWeather;
     if (weather == null) return 'No forecast details available.';
     return 'Temp ${_formatTemperature(weather.temperature, preferences.temperatureUnit)}  •  Wind ${_formatWindSpeed(weather.windSpeed, preferences.windSpeedUnit)}';
+  }
+
+  Future<void> _agentLog({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, Object?> data,
+  }) async {
+    final payload = <String, Object?>{
+      'sessionId': 'ede35a',
+      'runId': runId,
+      'hypothesisId': hypothesisId,
+      'location': location,
+      'message': message,
+      'data': data,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    try {
+      await Dio().post(
+        'http://127.0.0.1:7942/ingest/e2e89654-45f0-4063-87a1-a8bc03b32f26',
+        data: payload,
+        options: Options(
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': 'ede35a',
+          },
+        ),
+      );
+    } catch (_) {}
   }
 }
 
@@ -1593,25 +1803,31 @@ class _BottomNavAction extends StatelessWidget {
         onTap: onPressed,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 4),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: Colors.white.withValues(alpha: 0.68),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.shade200, width: 1),
+            border: Border.all(
+              color: Colors.grey.shade300.withValues(alpha: 0.7),
+              width: 1,
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: Colors.grey.shade700),
-              const SizedBox(width: 6),
+              Icon(icon, size: 16, color: Colors.grey.shade700),
+              const SizedBox(height: 3),
               Text(
                 label,
                 style: const TextStyle(
                   color: Color(0xFF4A4A5A),
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
+                  letterSpacing: 0.1,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -1651,6 +1867,105 @@ class _MapControlButton extends StatelessWidget {
             child: Icon(icon, size: 20, color: const Color(0xFF0D1B2A)),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PrimaryBottomAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final VoidCallback onPressed;
+
+  const _PrimaryBottomAction({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(14),
+      elevation: 2,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 17, color: Colors.black87),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.black87,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.1,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NotificationBellButton extends StatelessWidget {
+  const _NotificationBellButton({required this.unreadCount});
+
+  final int unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Notifications',
+      onPressed: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const NotificationsPage()),
+        );
+      },
+      icon: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          const Icon(Icons.notifications_outlined, color: Colors.white, size: 22),
+          if (unreadCount > 0)
+            Positioned(
+              right: -8,
+              top: -6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white, width: 1.2),
+                ),
+                constraints: const BoxConstraints(minWidth: 18, minHeight: 16),
+                child: Text(
+                  unreadCount > 9 ? '9+' : unreadCount.toString(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1713,7 +2028,8 @@ class _LocationSearchPageState extends State<_LocationSearchPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString()
+      final msg = e
+          .toString()
           .replaceFirst('StateError: ', '')
           .replaceFirst('Exception: ', '');
       setState(() {
@@ -1836,16 +2152,16 @@ class _LocationSearchPageState extends State<_LocationSearchPage> {
                           ),
                         )
                       : (_controller.text.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _controller.clear();
-                                _debounce?.cancel();
-                                _scheduleSearch('');
-                                setState(() {});
-                              },
-                            )
-                          : null),
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                onPressed: () {
+                                  _controller.clear();
+                                  _debounce?.cancel();
+                                  _scheduleSearch('');
+                                  setState(() {});
+                                },
+                              )
+                            : null),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(18),
                   ),
@@ -2157,20 +2473,23 @@ class _AIFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton.extended(
-      onPressed: onPressed,
-      backgroundColor: const Color(0xFF00B4D8),
-      icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
-      label: const Text(
-        'AI Recommendations',
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-          fontSize: 13,
+    return Material(
+      color: Colors.greenAccent,
+      shape: const CircleBorder(),
+      elevation: 6,
+      shadowColor: Colors.black.withValues(alpha: 0.28),
+      child: InkWell(
+        onTap: onPressed,
+        customBorder: const CircleBorder(),
+        child: const SizedBox(
+          width: 44,
+          height: 44,
+          child: Tooltip(
+            message: 'AI Recommendations',
+            child: Icon(Icons.auto_awesome, color: Colors.black, size: 20),
+          ),
         ),
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      elevation: 6,
     );
   }
 }

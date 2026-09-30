@@ -38,37 +38,35 @@ class AuthFlowService {
     this._refreshSessionUsecase,
   );
 
-  Future<AppUser?> getCurrentUser(GetCurrentUserRequest request) async {
-    return await _getCurrentUserUsecase(request);
+  Future<AppUser?> getCurrentUser() async {
+    return await _getCurrentUserUsecase(const GetCurrentUserRequest());
   }
 
-  Future<AppUser> signIn(SignInRequest request) async {
-    return await _signInUsecase(request);
+  Future<AppUser> signIn(String email, String password) async {
+    return await _signInUsecase(SignInRequest(email: email, password: password));
   }
 
-  Future<AppUser> signUp(SignUpRequest request) async {
-    return await _signUpUsecase(request);
+  Future<AppUser> signUp(String email, String password) async {
+    return await _signUpUsecase(SignUpRequest(email: email, password: password));
   }
 
-  Future<AppUser> signInWithGoogle(SignInWithGoogleRequest request) async {
-    return await _signInWithGoogleUsecase(request);
+  Future<AppUser> signInWithGoogle() async {
+    return await _signInWithGoogleUsecase(const SignInWithGoogleRequest());
   }
 
-  Future<void> signOut(SignOutRequest request) async {
-    await _signOutUsecase(request);
+  Future<void> signOut() async {
+    await _signOutUsecase(const SignOutRequest());
   }
 
-  Future<AuthSessionInfo?> getCurrentSession(
-    GetCurrentSessionRequest request,
-  ) async {
-    return await _getCurrentSessionUsecase(request);
+  Future<AuthSessionInfo?> getCurrentSession({bool forceRefresh = false}) async {
+    return await _getCurrentSessionUsecase(GetCurrentSessionRequest(forceRefresh: forceRefresh));
   }
 
-  Future<String?> getAccessToken(GetAccessTokenRequest request) async {
-    return await _getAccessTokenUsecase(request);
+  Future<String?> getAccessToken({bool forceRefresh = false}) async {
+    return await _getAccessTokenUsecase(GetAccessTokenRequest(forceRefresh: forceRefresh));
   }
 
-  Future<AuthSessionInfo?> refreshSession(RefreshSessionRequest request) async {
-    return await _refreshSessionUsecase(request);
+  Future<AuthSessionInfo?> refreshSession() async {
+    return await _refreshSessionUsecase(const RefreshSessionRequest());
   }
 }

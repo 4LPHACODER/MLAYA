@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 
 import '../controllers/auth_controller.dart';
 import '../states/auth_state.dart';
@@ -9,6 +8,7 @@ import '../widgets/auth_button.dart';
 import '../widgets/email_input_field.dart';
 import '../widgets/google_sign_in_button.dart';
 import '../widgets/password_input_field.dart';
+import '../widgets/auth_ui_shell.dart';
 import 'signup_page.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
@@ -57,6 +57,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
+    final compact = MediaQuery.of(context).size.width < 360;
 
     ref.listen<AuthState?>(authControllerProvider, (previous, next) {
       if (next == null) return;
@@ -74,139 +75,66 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       }
     });
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFFE3F2FD), Color(0xFFF0F4F8), Colors.white],
-                stops: [0.0, 0.5, 1.0],
-              ),
-            ),
-          ),
-          Positioned(
-            top: -80,
-            right: -60,
-            child: Container(
-              width: 240,
-              height: 240,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF1E88E5).withOpacity(0.08),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -100,
-            left: -80,
-            child: Container(
-              width: 280,
-              height: 280,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: const Color(0xFF0D47A1).withOpacity(0.05),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 20),
-                    _buildLogo(),
-                    const SizedBox(height: 50),
-                    _buildAuthCard(context, authState),
-                    const SizedBox(height: 24),
-                    _buildSignUpLink(context),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+    return AuthNatureScaffold(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const AuthBrandHeader(subtitle: 'Escape into Nature'),
+            SizedBox(height: compact ? 24 : 32),
+            _buildAuthCard(context, authState),
+            const SizedBox(height: 18),
+            _buildSignUpLink(context),
+          ],
+        ),
       ),
-    );
-  }
-
-  Widget _buildLogo() {
-    final width = MediaQuery.of(context).size.width;
-    final compact = width < 360;
-
-    return AppBrandLogo(
-      logoSize: compact ? 84 : 104,
-      borderRadius: compact ? 22 : 26,
-      subtitle: 'Weather & Forecast',
-      spacing: compact ? 12 : 16,
     );
   }
 
   Widget _buildAuthCard(BuildContext context, AuthState authState) {
-    return Container(
-      padding: const EdgeInsets.all(28),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 32,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
+    final compact = MediaQuery.of(context).size.width < 360;
+
+    return AuthGlassCard(
       child: Column(
         children: [
           Text(
             'Welcome Back',
-            style: Theme.of(
-              context,
-            ).textTheme.displayLarge?.copyWith(fontSize: 28),
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.displayLarge?.copyWith(
+              fontSize: compact ? 25 : 30,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF334638),
+              letterSpacing: 0.1,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Sign in to access weather forecasts',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+            'Sign in to access weather forecasts and explore your day.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: const Color(0xFF677D6E),
+              height: 1.45,
+              fontSize: compact ? 13 : 14,
+            ),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 26),
           EmailInputField(controller: _emailController),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           PasswordInputField(controller: _passwordController),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
           AuthButton(
             text: 'Sign In',
             onPressed: authState.isLoading ? null : _signIn,
             isLoading: authState.isLoading,
           ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: Container(height: 1, color: Colors.grey.shade200),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'or',
-                  style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-                ),
-              ),
-              Expanded(
-                child: Container(height: 1, color: Colors.grey.shade200),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
+          const AuthSectionDivider(),
+          const SizedBox(height: 18),
           GoogleSignInButton(
             onPressed: authState.isLoading ? null : _signInWithGoogle,
+            isLoading: authState.isLoading,
           ),
         ],
       ),
@@ -255,7 +183,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           child: Text(
             'Sign Up',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
+              color: const Color(0xFF3E5E4C),
               fontWeight: FontWeight.w600,
             ),
           ),

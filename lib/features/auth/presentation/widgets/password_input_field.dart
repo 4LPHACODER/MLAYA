@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'auth_input_decoration.dart';
 
 class PasswordInputField extends StatefulWidget {
   final TextEditingController controller;
@@ -17,12 +18,17 @@ class _PasswordInputFieldState extends State<PasswordInputField> {
     return TextFormField(
       controller: widget.controller,
       obscureText: _obscureText,
-      decoration: InputDecoration(
+      decoration: buildAuthInputDecoration(
         labelText: 'Password',
         hintText: 'Enter your password',
-        prefixIcon: const Icon(Icons.lock),
+        prefixIcon: Icons.lock_outline_rounded,
         suffixIcon: IconButton(
-          icon: Icon(_obscureText ? Icons.visibility : Icons.visibility_off),
+          icon: Icon(
+            _obscureText
+                ? Icons.visibility_outlined
+                : Icons.visibility_off_outlined,
+          ),
+          color: const Color(0xFF6E8573),
           onPressed: () {
             setState(() {
               _obscureText = !_obscureText;

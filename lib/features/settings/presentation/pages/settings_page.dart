@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../../auth/presentation/controllers/auth_controller.dart';
+import '../../../community/application/providers/community_providers.dart';
 import '../../application/providers/app_preferences_providers.dart';
 import '../../domain/entities/app_preferences.dart';
 
@@ -15,6 +17,8 @@ class SettingsPage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
     final authNotifier = ref.read(authControllerProvider.notifier);
     final user = authState.user;
+    final myAddedSpots = ref.watch(myAddedSpotsProvider);
+    final myCapturedMoments = ref.watch(myCapturedMomentsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -32,7 +36,7 @@ class SettingsPage extends ConsumerWidget {
                     ? const Icon(Icons.person_outline)
                     : null,
               ),
-              title: Text(user?.displayName ?? 'Windify user'),
+              title: Text(user?.displayName ?? 'Malaya user'),
               subtitle: Text(user?.email ?? 'No email available'),
             ),
           ),
@@ -93,6 +97,98 @@ class SettingsPage extends ConsumerWidget {
                     preferencesNotifier.setWindSpeedUnit(value);
                   }
                 },
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _SectionCard(
+            title: 'My Added Spots',
+            children: [
+              myAddedSpots.when(
+                data: (spots) {
+                  if (spots.isEmpty) {
+                    return const Text('No added spots yet.');
+                  }
+                  return Column(
+                    children: spots
+                        .take(5)
+                        .map(
+                          (spot) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                spot.imageUrl,
+                                width: 52,
+                                height: 52,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            title: Text(
+                              spot.spotName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${spot.category} • ${DateFormat('MMM d, y').format(spot.createdAt.toLocal())}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Text('Failed to load spots: $error'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SectionCard(
+            title: 'My Captured Moments',
+            children: [
+              myCapturedMoments.when(
+                data: (moments) {
+                  if (moments.isEmpty) {
+                    return const Text('No captured moments yet.');
+                  }
+                  return Column(
+                    children: moments
+                        .take(5)
+                        .map(
+                          (moment) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                moment.imageUrl,
+                                width: 52,
+                                height: 52,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            title: Text(
+                              moment.caption?.trim().isNotEmpty == true
+                                  ? moment.caption!
+                                  : 'Untitled moment',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              DateFormat(
+                                'MMM d, y • h:mm a',
+                              ).format(moment.createdAt.toLocal()),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Text('Failed to load moments: $error'),
               ),
             ],
           ),

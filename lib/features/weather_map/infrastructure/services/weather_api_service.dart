@@ -7,10 +7,12 @@ import '../../../../core/config/env_config.dart';
 class WeatherApiService {
   final Dio _dio;
   final String _apiKey;
+  final String _baseUrl;
 
   WeatherApiService({Dio? dio, String? apiKey})
-    : _dio = dio ?? Dio(),
-      _apiKey = apiKey ?? EnvConfig.openWeatherApiKey ?? '';
+      : _dio = dio ?? Dio(),
+        _apiKey = apiKey ?? EnvConfig.openWeatherApiKey ?? '',
+        _baseUrl = EnvConfig.openWeatherBaseUrl;
 
   /// Fetch current weather by coordinates
   Future<CurrentWeather> getCurrentWeatherByCoords({
@@ -19,12 +21,15 @@ class WeatherApiService {
     String units = 'metric',
   }) async {
     if (_apiKey.isEmpty) {
-      throw Exception('OpenWeather API key not configured in .env');
+      throw StateError(
+          'OpenWeather API key not configured. '
+          'Please check your .env file contains OPENWEATHER_API_KEY=your_key',
+      );
     }
 
     try {
       final response = await _dio.get(
-        'https://api.openweathermap.org/data/2.5/weather',
+        '$_baseUrl/weather',
         queryParameters: {
           'lat': lat,
           'lon': lon,
@@ -32,14 +37,15 @@ class WeatherApiService {
           'units': units,
         },
       );
-
       if (response.statusCode == 200 && response.data != null) {
         return CurrentWeather.fromJson(response.data as Map<String, dynamic>);
       } else {
-        throw Exception('Failed to fetch weather data');
+        throw StateError(
+            'Failed to fetch weather data: HTTP ${response.statusCode} ${response.data}',
+        );
       }
     } on DioException catch (e) {
-      throw Exception('Weather API error: ${e.message}');
+      _handleDioError(e, 'Weather API');
     }
   }
 
@@ -50,11 +56,14 @@ class WeatherApiService {
     String units = 'metric',
   }) async {
     if (_apiKey.isEmpty) {
-      throw Exception('OpenWeather API key not configured');
+      throw StateError(
+          'OpenWeather API key not configured. '
+          'Please check your .env file contains OPENWEATHER_API_KEY=your_key',
+      );
     }
 
     final response = await _dio.get(
-      'https://api.openweathermap.org/data/2.5/forecast',
+      '$_baseUrl/forecast',
       queryParameters: {
         'lat': lat,
         'lon': lon,
@@ -62,11 +71,12 @@ class WeatherApiService {
         'units': units,
       },
     );
-
     if (response.statusCode == 200) {
       return response.data as Map<String, dynamic>;
     } else {
-      throw Exception('Failed to fetch forecast');
+      throw StateError(
+          'Failed to fetch forecast: HTTP ${response.statusCode} ${response.data}',
+      );
     }
   }
 
@@ -84,5 +94,27 @@ class WeatherApiService {
     } catch (_) {
       return null;
     }
+  }
+
+  Never _handleDioError(DioException e, String source) {
+    if (e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.sendTimeout) {
+      throw StateError('$source: Connection timeout. Please check your internet.');
+    }
+    if (e.type == DioExceptionType.badResponse) {
+      final status = e.response?.statusCode;
+      if (status == 401) {
+        throw StateError('$source: Invalid API key. Please check your OPENWEATHER_API_KEY.');
+      }
+      if (status == 429) {
+        throw StateError('$source: Request limit exceeded. Please try again later.');
+      }
+      throw StateError('$source: HTTP $status ${e.response?.statusMessage ?? ''}');
+    }
+    if (e.type == DioExceptionType.badCertificate) {
+      throw StateError('$source: SSL certificate error. Please check your network.');
+    }
+    throw StateError('$source: Unknown error: ${e.message}');
   }
 }
